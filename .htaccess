@@ -1,0 +1,42 @@
+# XShow .htaccess - Simplified
+
+# PHP settings
+<IfModule mod_php.c>
+    php_value upload_max_filesize 50M
+    php_value post_max_size 50M
+    php_value max_execution_time 300
+    php_value memory_limit 256M
+</IfModule>
+
+# Protect sensitive files
+<Files "config.php">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+<Files "*.db">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+<Files "debug.php">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+<Files "test.php">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# Allow access to uploads
+<Directory "uploads">
+    AllowOverride None
+    Require all granted
+</Directory>
+
+# Disable directory listing
+Options -Indexes
+
+# Default index files
+DirectoryIndex index.php

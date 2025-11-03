@@ -1,197 +1,197 @@
 <?php
-require_once __DIR__ . '/config.php';
+// Error handling for installation
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 
+// Create logs directory for error logging
+if (!is_dir(__DIR__ . '/logs')) {
+    mkdir(__DIR__ . '/logs', 0755, true);
+}
+ini_set('log_errors', 1);
+ini_set('error_log', __DIR__ . '/logs/install.log');
+
+// Secure session configuration
+ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_secure', isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 1 : 0);
+ini_set('session.cookie_samesite', 'Strict');
+ini_set('session.gc_maxlifetime', 3600);
+ini_set('session.cookie_lifetime', 3600);
+
+session_start();
+
+require_once 'config.php';
+Config::init();
+
+// Server requirements check
+$requirements = [
+    'php_version' => version_compare(PHP_VERSION, '7.4', '>='),
+    'pdo' => extension_loaded('pdo'),
+    'pdo_sqlite' => extension_loaded('pdo_sqlite'),
+    'writable' => is_writable(__DIR__)
+];
+
+$allMet = !in_array(false, $requirements);
+
+// Check if already installed
 if (Config::isInstalled()) {
     header('Location: index.php');
     exit;
 }
 
+$message = '';
+$username = '';
+$email = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
-    $confirmPassword = $_POST['confirm_password'] ?? '';
-    
-    $errors = [];
-    
-    // Validate username
+    $confirm = $_POST['confirm_password'] ?? '';
+    $email = trim($_POST['email'] ?? '');
+
+    // Validation
     if (strlen($username) < 3) {
-        $errors[] = 'Username must be at least 3 characters long';
-    }
-    if (!preg_match('/^[a-zA-Z0-9_-]+$/', $username)) {
-        $errors[] = 'Username can only contain letters, numbers, underscores, and hyphens';
-    }
-    
-    // Validate password
-    if (strlen($password) < 8) {
-        $errors[] = 'Password must be at least 8 characters long';
-    }
-    if (!preg_match('/[A-Z]/', $password)) {
-        $errors[] = 'Password must contain at least one uppercase letter';
-    }
-    if (!preg_match('/[a-z]/', $password)) {
-        $errors[] = 'Password must contain at least one lowercase letter';
-    }
-    if (!preg_match('/[0-9]/', $password)) {
-        $errors[] = 'Password must contain at least one number';
-    }
-    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
-        $errors[] = 'Password must contain at least one special character';
-    }
-    if ($password !== $confirmPassword) {
-        $errors[] = 'Passwords do not match';
-    }
-    
-    if (empty($errors)) {
-        try {
-            if (Config::install($username, $password)) {
-                // Create session for immediate login
-                session_start();
-                $_SESSION['authenticated'] = true;
-                header('Location: index.php');
-                exit;
-            } else {
-                $errors[] = 'Failed to save configuration';
+        $message = 'Username must be at least 3 characters';
+    } elseif (strlen($password) < 8) {
+        $message = 'Password must be at least 8 characters';
+    } elseif (!preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password) || !preg_match('/[0-9]/', $password)) {
+        $message = 'Password must contain uppercase, lowercase, and number';
+    } elseif ($password !== $confirm) {
+        $message = 'Passwords do not match';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $message = 'Invalid email address';
+    } else {
+        // Create admin user
+        if (Config::createAdmin($username, $password, $email)) {
+            // Create uploads directory
+            $uploadsDir = __DIR__ . '/uploads';
+            if (!is_dir($uploadsDir)) {
+                mkdir($uploadsDir, 0755, true);
             }
-        } catch (Exception $e) {
-            $errors[] = $e->getMessage();
+
+            // Set session and redirect
+            require_once 'auth.php';
+            Auth::login($username, $password);
+            header('Location: index.php');
+            exit;
+        } else {
+            $message = 'Failed to create admin user';
         }
     }
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Install XShow</title>
-    <link rel="stylesheet" href="/xshow/assets/css/install.css">
-
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            max-width: 500px;
+            width: 100%;
+            margin: 20px;
+        }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #555; }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        input:focus { outline: none; border-color: #007bff; }
+        .password-hint {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #e74c3c;
+        }
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .btn:hover { transform: translateY(-2px); }
+    </style>
 </head>
 <body>
-    <div class="install-container">
-        <div class="install-card">
-            <div class="install-header">
-                <h1>Install XShow</h1>
-                <p>Create your administrator account</p>
+    <div class="container">
+        <h1>🚀 Install XShow</h1>
+
+        <?php if (!$allMet): ?>
+            <div class="error">
+                <h3>Server Requirements Not Met</h3>
+                <ul>
+                    <li>PHP 7.4+: <?php echo $requirements['php_version'] ? '✓' : '✗'; ?> (Current: <?php echo PHP_VERSION; ?>)</li>
+                    <li>PDO Extension: <?php echo $requirements['pdo'] ? '✓' : '✗'; ?></li>
+                    <li>PDO SQLite Extension: <?php echo $requirements['pdo_sqlite'] ? '✓' : '✗'; ?></li>
+                    <li>Writable Directory: <?php echo $requirements['writable'] ? '✓' : '✗'; ?></li>
+                </ul>
+                <p>Please contact your server administrator to fix these issues.</p>
+            </div>
+        <?php elseif ($message): ?>
+            <div class="error"><?php echo htmlspecialchars($message); ?></div>
+        <?php endif; ?>
+
+        <?php if ($allMet): ?>
+
+        <form method="post">
+            <div class="form-group">
+                <label for="username">Admin Username</label>
+                <input type="text" id="username" name="username" value="<?php echo htmlspecialchars($username); ?>" required>
             </div>
 
-            <?php if (!empty($errors)): ?>
-                <div class="error-list">
-                    <?php foreach($errors as $error): ?>
-                        <div class="error-item"><?php echo htmlspecialchars($error); ?></div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($email); ?>" required>
+            </div>
 
-            <form method="POST" class="install-form">
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <div class="relative">
-                        <input 
-                            type="text" 
-                            id="username" 
-                            name="username" 
-                            value="<?php echo htmlspecialchars($username ?? ''); ?>"
-                            placeholder="Enter username" 
-                            required
-                            class="form-control"
-                        >
-                    </div>
-                </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+                <div class="password-hint">At least 8 characters with uppercase, lowercase, and numbers</div>
+            </div>
 
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <div class="relative">
-                        <input 
-                            type="password" 
-                            id="password" 
-                            name="password" 
-                            placeholder="Enter password" 
-                            required
-                            class="form-control"
-                        >
-                    </div>
-                </div>
+            <div class="form-group">
+                <label for="confirm_password">Confirm Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required>
+            </div>
 
-                <div class="form-group">
-                    <label for="confirm_password">Confirm Password</label>
-                    <div class="relative">
-                        <input 
-                            type="password" 
-                            id="confirm_password" 
-                            name="confirm_password" 
-                            placeholder="Confirm password" 
-                            required
-                            class="form-control"
-                        >
-                    </div>
-                </div>
-
-                <div class="password-requirements">
-                    <h4>Password Requirements:</h4>
-                    <ul>
-                        <li>At least 8 characters long</li>
-                        <li>Contains uppercase and lowercase letters</li>
-                        <li>Contains numbers</li>
-                        <li>Contains special characters</li>
-                    </ul>
-                </div>
-
-                <button type="submit" class="install-btn">Install Now</button>
-            </form>
-        </div>
+            <button type="submit" class="btn">Install XShow</button>
+        </form>
+        <?php endif; ?>
     </div>
-
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const form = document.querySelector('.install-form');
-        const password = document.getElementById('password');
-        const confirmPassword = document.getElementById('confirm_password');
-        const username = document.getElementById('username');
-
-        form.addEventListener('submit', function(e) {
-            let errors = [];
-
-            // Username validation
-            if (username.value.length < 3) {
-                errors.push('Username must be at least 3 characters long');
-            }
-            if (!/^[a-zA-Z0-9_-]+$/.test(username.value)) {
-                errors.push('Username can only contain letters, numbers, underscores, and hyphens');
-            }
-
-            // Password validation
-            if (password.value.length < 8) {
-                errors.push('Password must be at least 8 characters long');
-            }
-            if (!/[A-Z]/.test(password.value)) {
-                errors.push('Password must contain at least one uppercase letter');
-            }
-            if (!/[a-z]/.test(password.value)) {
-                errors.push('Password must contain at least one lowercase letter');
-            }
-            if (!/[0-9]/.test(password.value)) {
-                errors.push('Password must contain at least one number');
-            }
-            if (!/[^A-Za-z0-9]/.test(password.value)) {
-                errors.push('Password must contain at least one special character');
-            }
-            if (password.value !== confirmPassword.value) {
-                errors.push('Passwords do not match');
-            }
-
-            if (errors.length > 0) {
-                e.preventDefault();
-                const errorList = document.querySelector('.error-list') || document.createElement('div');
-                errorList.className = 'error-list';
-                errorList.innerHTML = errors.map(error => `<div class="error-item">${error}</div>`).join('');
-                
-                if (!document.querySelector('.error-list')) {
-                    form.insertBefore(errorList, form.firstChild);
-                }
-            }
-        });
-    });
-    </script>
 </body>
 </html>
